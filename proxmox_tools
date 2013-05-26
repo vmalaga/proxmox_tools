@@ -1,0 +1,80 @@
+#!/usr/bin/python
+
+import sys
+import socket
+import json
+import requests
+import itertools
+import subprocess
+
+
+username='vmoper@pve'
+password='vmoper'
+localnode = socket.gethostname()
+urlapi = 'https://'+localnode+':8006/api2/json'
+
+def geTicket():
+	"""Function to get ticket from proxmox
+	Connect to local node to the API and
+	get one ticket for one session"""
+	authdata = {"username": username, "password": password}
+	geticket = json.loads(s.post(urlapi+'/access/ticket',authdata ,verify=False).text)
+	ticket = geticket['data']['ticket']
+	csrfprev = geticket['data']['CSRFPreventionToken']
+	return [ticket, csrfprev]
+
+def getNodes():
+	"""Function to get list of nodes on proxmox cluster"""
+	listnodes = json.loads(s.get(urlapi+'/nodes/', cookies=cookies, verify=False).text)['data']
+	nodes = []
+	for node in listnodes:
+		nodes.append(node['node'])
+	nodes.sort()
+	return nodes
+
+def getVMnum():
+	"""Function to get num of running vm on each
+	proxmox node"""
+	nodes = getNodes()
+	for node in nodes:
+		listvm = json.loads(s.get(urlapi+'/nodes/'+node+'/qemu', cookies=cookies, verify=False).text)['data']
+		print "Nodo: " + node + " Running VM: ", len(listvm)
+
+def getVMids(node):
+	"""Function to get running vm on
+	proxmox node"""
+	#node = self.node
+	listvm = json.loads(s.get(urlapi+'/nodes/'+node+'/qemu', cookies=cookies, verify=False).text)['data']
+	vmids = []
+	for id in iter(listvm):
+		vmids.append(id['vmid'])
+	vmids.sort()
+	return vmids
+
+def migLocalNode():
+	vmids = getVMids(localnode)
+	nodes = getNodes()
+	nodes.pop(nodes.index(localnode))
+	cyrnodes = itertools.cycle(nodes)
+	for n in range(len(vmids)):
+		node = cyrnodes.next()
+		print "Migrating vm: %s to node %s" % (vmids[n], node)
+		subprocess.check_call(['qm', 'migrate', vmids[n], node, '-online'])
+
+
+
+
+
+# Start session and get ticket
+s = requests.Session()
+ticket = geTicket()[0]
+csrfprev = geTicket()[1]
+cookies = dict(PVEAuthCookie=ticket)
+
+#nodes = getNodes()
+#print nodes
+
+#vms = getVMids(localnode)
+#print vms
+
+migLocalNode()
